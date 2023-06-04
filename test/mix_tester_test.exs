@@ -61,7 +61,6 @@ defmodule MixTesterTest do
           name: "example",
           application_env: %{
             "config" => %{{:example, :key} => :config_value},
-            "dev" => %{{:example, :key} => :dev_value},
             "test" => %{{:example, :key} => :test_value}
           }
         )
@@ -94,7 +93,7 @@ defmodule MixTesterTest do
             use ExUnit.Case
 
             test "Configuration works" do
-              assert :dev_value == Application.get_env(:example, :key)
+              assert :config_value == Application.get_env(:example, :key)
             end
           end
         end

@@ -138,9 +138,15 @@ defmodule MixTester do
           end
         )
 
-        import_config "#{config_env()}.exs"
+        import_config("#{config_env()}.exs")
       end
     )
+
+    application_env =
+      application_env
+      |> Map.put_new("dev", %{})
+      |> Map.put_new("test", %{})
+      |> Map.put_new("prod", %{})
 
     for {config_file, config} <- application_env do
       write_ast(

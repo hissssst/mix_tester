@@ -1,33 +1,62 @@
 # MixTester
 
-Tiny project for testing elixir dependencies
+Tiny project for testing mix tasks and anything related to project management and code generation tooling
 
 ## Features
 
+* Real mix project management experience with `new` flags and other stuff
+* Application env configuration
+* Dependency list and other mix.exs configuration
+* Handy and simple helpers for common commands
 * ExUnit's async friendly
-* Helpers for common commands
 
 ## Usage
 
 ```elixir
-defmodule MyTest do
+defmodule AwesomeTask do
   use ExUnit.Case, async: true
 
   setup do
+    deps = [ {:awesome_task, path: File.cwd!()} ]
+    configuration = %{{:awesome_task, :year} => 2007}
+
+    # Creates project with `mix new my_project --sup`
+    # Which has `awesome_task` as a dependency
+    # And configuration where `config.exs` has
     project =
-      MixTester.setup(name: "my_project", application_env: %{
-        # Set the configuration in `config.exs`
-        "config" => %{{:my_project, :config_key} => :config_value},
+      MixTester.setup(
+        name: "my_project",
+        new: "--sup",
+        application_env: %{
+          "config" => configuration
+        },
+        project: [
+          deps: deps
+        ]
+      )
 
-        # Set the configuration in `dev.exs`
-        "dev" => %{{:my_project, :config_key} => :dev_value}
-      })
+    # Creates the test file
+    MixTester.write_ast(project, "test/my_project_test.exs", quote do
+      defmodule MyProjectTest do
+        use ExUnit.Case, async: true
 
-    on_exit(fn ->
-      cleanup(project)
+        test "Just works" do
+          assert 2007 == AwesomeModule.what_year_is_today()
+        end
+      end
     end)
 
+    # Cleanup the tmp dir
+    on_exit(fn -> MixTester.cleanup(project) end)
     {:ok, project: project}
+  end
+
+  test "My awesome task", %{project: project} do
+    # Run the task we are testing
+    assert {_, 0} = MixTester.mix_cmd(project, "awesome")
+
+    # Run the test written above and check if it's run successfully
+    assert {_, 0} = MixTester.mix_cmd(project, "test")
   end
 end
 ```
