@@ -33,8 +33,18 @@ defmodule MixTester do
           | {:new, String.t()}
           | {:application_env, application_env()}
 
+  @typedoc """
+  Accepts same options as `System.cmd` function
+  """
+  @type command_option :: {atom(), any()}
+
   @doc """
   Sets up the mix project for testing
+
+  ## Example:
+      iex> deps = [pathex: "~> 2.5"]
+      iex> project = MixTester.setup(name: :example, project: [deps: deps])
+      iex> "defmodule Example" <> _ = MixTester.read(project, "lib/example.ex")
   """
   @spec setup([setup_option()]) :: Project.t()
   def setup(opts \\ []) do
@@ -151,6 +161,13 @@ defmodule MixTester do
 
   @doc """
   Deletes project
+
+  ## Example:
+
+      iex> project = MixTester.setup(name: :example)
+      iex> MixTester.cleanup(project)
+      iex> MixTester.exists?(project, "mix.exs")
+      false
   """
   @spec cleanup(Project.t()) :: :ok
   def cleanup(%Project{root: root}) do
@@ -163,9 +180,34 @@ defmodule MixTester do
   end
 
   @doc """
-  Executes shell command in the project
+  Removes all existing projects
+
+  ## Example:
+
+      iex> project1 = MixTester.setup(name: :example)
+      iex> project2 = MixTester.setup(name: :example)
+      iex> MixTester.cleanup_all()
+      iex> MixTester.exists?(project1, "mix.exs")
+      false
+      iex> MixTester.exists?(project2, "mix.exs")
+      false
   """
-  @spec sh(Project.t(), command :: String.t(), Keyword.t()) :: command_result()
+  @spec cleanup_all() :: :ok
+  def cleanup_all do
+    File.rm_rf!(tester_root())
+    :ok
+  end
+
+  @doc """
+  Executes shell command in the project
+
+  ## Example:
+
+      iex> project = MixTester.setup(name: :example)
+      iex> {ls, 0} = MixTester.sh(project, "ls -la")
+      iex> ls =~ "mix.exs"
+  """
+  @spec sh(Project.t(), command :: String.t(), [command_option()]) :: command_result()
   def sh(%Project{root: root}, command_string, opts \\ []) do
     opts = Keyword.update(opts, :cd, root, &Path.join(root, &1))
     System.cmd("sh", ["-c", command_string], opts)
@@ -173,8 +215,14 @@ defmodule MixTester do
 
   @doc """
   Executes command in project root
+
+  ## Example:
+
+      iex> project = MixTester.setup(name: :example)
+      iex> {ls, 0} = MixTester.cmd(project, "ls", ["-l", "-a"])
+      iex> ls =~ "mix.exs"
   """
-  @spec cmd(Project.t(), String.t(), [String.t()], Keyword.t()) :: command_result()
+  @spec cmd(Project.t(), String.t(), [String.t()], [command_option()]) :: command_result()
   def cmd(%Project{root: root}, command, args, opts \\ []) do
     opts = Keyword.update(opts, :cd, root, &Path.join(root, &1))
     System.cmd(command, args, opts)
@@ -182,8 +230,13 @@ defmodule MixTester do
 
   @doc """
   Executes mix command in project root
+
+  ## Example:
+
+      iex> project = MixTester.setup(name: :example)
+      iex> {_, 0} = MixTester.mix_cmd(project, "compile")
   """
-  @spec mix_cmd(Project.t(), String.t(), [String.t()], Keyword.t()) :: command_result()
+  @spec mix_cmd(Project.t(), String.t(), [String.t()], [command_option()]) :: command_result()
   def mix_cmd(%Project{root: root}, command, args \\ [], opts \\ []) do
     opts = Keyword.update(opts, :cd, root, &Path.join(root, &1))
     System.cmd("mix", [command | args], opts)
@@ -191,6 +244,11 @@ defmodule MixTester do
 
   @doc """
   Reads the existing file from project
+
+  ## Example:
+
+      iex> project = MixTester.setup(name: :example)
+      iex> "defmodule Example" <> _ = MixTester.read(project, "lib/example.ex")
   """
   @spec read(Project.t(), Path.t()) :: binary()
   def read(project, filename) do
@@ -201,6 +259,13 @@ defmodule MixTester do
 
   @doc """
   Writes a file in the project
+
+  ## Example:
+
+      iex> project = MixTester.setup(name: :example)
+      iex> MixTester.write(project, "priv/something.txt", "Hello!")
+      iex> MixTester.read(project, "priv/something.txt")
+      "Hello!"
   """
   @spec write(Project.t(), Path.t(), iodata(), list()) :: :ok
   def write(project, filename, content, modes \\ []) do
@@ -211,6 +276,14 @@ defmodule MixTester do
 
   @doc """
   Writes an AST in the file
+
+  ## Example:
+
+      iex> project = MixTester.setup(name: :example)
+      iex> MixTester.write_ast(project, "test/test_helper.exs", quote do: ExUnit.start(max_failures: 1))
+      iex> {_, 0} = MixTester.mix_cmd(project, "test")
+      iex> MixTester.read(project, "test/test_helper.exs")
+      "ExUnit.start(max_failures: 1)"
   """
   @spec write_ast(Project.t(), Path.t(), Macro.t(), list()) :: :ok
   def write_ast(project, filename, ast, modes \\ []) do
@@ -224,6 +297,17 @@ defmodule MixTester do
 
   @doc """
   Changes Elixir AST of file
+
+  ## Example:
+
+      iex> project = MixTester.setup(name: :example)
+      iex> MixTester.at_ast(project, "lib/example.ex", fn ast ->
+      ...>   Macro.prewalk(ast, fn
+      ...>     :world -> :not_the_world_mhahaha
+      ...>     other -> other
+      ...>   end)
+      ...> end)
+      iex> {_, 2} = MixTester.mix_cmd(project, "test")
   """
   @spec at_ast(Project.t(), Path.t(), (Macro.t() -> Macro.t())) :: :ok
   def at_ast(project, filename, func) do
@@ -241,6 +325,14 @@ defmodule MixTester do
 
   @doc """
   Checks if path exists in the project
+
+  ## Example:
+
+      iex> project = MixTester.setup()
+      iex> MixTester.exists?(project, "mix.exs")
+      true
+      iex> MixTester.exists?(project, "this_file_does_not_exist_actually.txt")
+      false
   """
   @spec exists?(Project.t(), Path.t()) :: boolean()
   def exists?(project, filename) do
@@ -249,6 +341,12 @@ defmodule MixTester do
 
   @doc """
   Expands path from relative path of the project
+
+  ## Example:
+
+      iex> project = MixTester.setup(name: :example)
+      iex> MixTester.expand(project, "mix.exs")
+      "/tmp/mix_tester/123/example/mix.exs"
   """
   @spec expand(Project.t(), Path.t()) :: Path.t()
   def expand(%Project{root: root}, filename) do
@@ -257,7 +355,13 @@ defmodule MixTester do
 
   @doc """
   Create a directory for specified file.
-  If you want to just create a directory, don't forget to add trailing slash.
+
+  ## Example:
+
+      iex> project = MixTester.setup(name: :example)
+      iex> MixTester.mkdir_p(project, "priv/static/file")
+      iex> MixTester.sh(project, "ls priv/")
+      {"static\\n", 0}
   """
   @spec mkdir_p(Project.t(), Path.t()) :: Path.t()
   def mkdir_p(%Project{root: root}, filename) do

@@ -1,6 +1,6 @@
 defmodule MixTesterTest do
   use ExUnit.Case
-  doctest MixTester
+  doctest MixTester, import: true, except: [cleanup_all: 0, expand: 2]
 
   test "Creates and deletes the project" do
     project = MixTester.setup()
