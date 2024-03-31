@@ -1,7 +1,7 @@
 defmodule MixTester.MixProject do
   use Mix.Project
 
-  @version "1.1.0"
+  @version "1.1.1"
 
   @description """
   Tiny tool for project testing
@@ -58,8 +58,7 @@ defmodule MixTester.MixProject do
     [
       {:dialyxir, "~> 1.0", only: :dev, runtime: false},
       {:credo, "~> 1.5", only: :dev, runtime: false},
-      {:ex_doc, "~> 0.28", only: :dev, runtime: false},
-      {:sourceror, "~> 0.12"}
+      {:ex_doc, "~> 0.28", only: :dev, runtime: false}
     ]
   end
 end
