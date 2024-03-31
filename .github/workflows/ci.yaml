@@ -19,8 +19,8 @@ jobs:
       uses: erlef/setup-beam@v1
       id: setup-beam
       with:
-        otp-version: '25'
-        elixir-version: '1.14'
+        otp-version: '26'
+        elixir-version: '1.16'
 
     - name: Restore dependencies and _build
       uses: actions/cache/restore@v3

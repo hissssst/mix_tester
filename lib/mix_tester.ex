@@ -10,8 +10,8 @@ defmodule MixTester do
     Structure which contains path to project root directory
     and a name of the project
     """
-    defstruct [:root, :name]
-    @type t :: %__MODULE__{root: Path.t(), name: String.t()}
+    defstruct [:root, :name, env: %{}]
+    @type t :: %__MODULE__{root: Path.t(), name: String.t(), env: %{String.t() => String.t()}}
   end
 
   @typedoc "Output and exit code returned by executed command"
@@ -25,6 +25,7 @@ defmodule MixTester do
   - `:name` (string) — Name of the mix project (doesn't have to be unique)
   - `:new` (string) — String of options for `mix new name`
   - `:application_env` (application_env) — A configuration for the project
+  - `:system_env` (env maps) — System env configuration
   - `:project` - A kv to override what's written in `mix.exs`'s `project` function
   - `:application` - A kv to override what's written in `mix.exs`'s `application` function
   """
@@ -83,7 +84,38 @@ defmodule MixTester do
       end
     end
 
-    project
+    load_system_env(project, opts)
+  end
+
+  defp load_system_env(project, opts) do
+    system_env = Keyword.get(opts, :system_env, %{})
+
+    Enum.each(system_env, fn
+      {key, value} when is_binary(key) and is_binary(value) ->
+        :ok
+
+      {key, value} ->
+        raise ArgumentError,
+              "Expected strings in system env. Got #{inspect(key)} and #{inspect(value)}"
+    end)
+
+    %Project{project | env: system_env}
+  end
+
+  defp merge_env(opts, %Project{env: project_env}) do
+    case Keyword.fetch(opts, :env) do
+      :error ->
+        Keyword.put(opts, :env, Enum.to_list(project_env))
+
+      {:ok, env} ->
+        env =
+          project_env
+          |> Map.new()
+          |> Map.merge(Map.new(env))
+          |> Map.to_list()
+
+        Keyword.put(opts, :env, env)
+    end
   end
 
   defp prepare_mixexs(project, opts) do
@@ -214,8 +246,12 @@ defmodule MixTester do
       iex> ls =~ "mix.exs"
   """
   @spec sh(Project.t(), command :: String.t(), [command_option()]) :: command_result()
-  def sh(%Project{root: root}, command_string, opts \\ []) do
-    opts = Keyword.update(opts, :cd, root, &Path.join(root, &1))
+  def sh(%Project{root: root} = project, command_string, opts \\ []) do
+    opts =
+      opts
+      |> Keyword.update(:cd, root, &Path.join(root, &1))
+      |> merge_env(project)
+
     System.cmd("sh", ["-c", command_string], opts)
   end
 
@@ -229,8 +265,12 @@ defmodule MixTester do
       iex> ls =~ "mix.exs"
   """
   @spec cmd(Project.t(), String.t(), [String.t()], [command_option()]) :: command_result()
-  def cmd(%Project{root: root}, command, args, opts \\ []) do
-    opts = Keyword.update(opts, :cd, root, &Path.join(root, &1))
+  def cmd(%Project{root: root} = project, command, args, opts \\ []) do
+    opts =
+      opts
+      |> Keyword.update(:cd, root, &Path.join(root, &1))
+      |> merge_env(project)
+
     System.cmd(command, args, opts)
   end
 
@@ -243,9 +283,38 @@ defmodule MixTester do
       iex> {_, 0} = MixTester.mix_cmd(project, "compile")
   """
   @spec mix_cmd(Project.t(), String.t(), [String.t()], [command_option()]) :: command_result()
-  def mix_cmd(%Project{root: root}, command, args \\ [], opts \\ []) do
-    opts = Keyword.update(opts, :cd, root, &Path.join(root, &1))
+  def mix_cmd(%Project{root: root} = project, command, args \\ [], opts \\ []) do
+    opts =
+      opts
+      |> Keyword.update(:cd, root, &Path.join(root, &1))
+      |> merge_env(project)
+
     System.cmd("mix", [command | args], opts)
+  end
+
+  @doc """
+  Executes mix test in the project. Returns `true` or `false`
+
+  ## Example
+
+      iex> project = MixTester.setup(name: :example)
+      iex> true = MixTester.mix_test(project)
+  """
+  defmacro mix_test(project, args \\ [], opts \\ []) do
+    position = "#{Path.basename(__CALLER__.file)}:#{__CALLER__.line}"
+    message = "MixTester.mix_test at #{position} failed with"
+
+    quote do
+      case unquote(__MODULE__).mix_cmd(unquote(project), "test", unquote(args), unquote(opts)) do
+        {_, 0} ->
+          true
+
+        {output, _} ->
+          IO.puts(unquote(message))
+          IO.puts(output)
+          false
+      end
+    end
   end
 
   @doc """
@@ -295,7 +364,7 @@ defmodule MixTester do
   def write_ast(project, filename, ast, modes \\ []) do
     content =
       ast
-      |> Sourceror.to_string()
+      |> Macro.to_string()
       |> Code.format_string!()
 
     write(project, filename, content, modes)
@@ -318,12 +387,14 @@ defmodule MixTester do
   @spec at_ast(Project.t(), Path.t(), (Macro.t() -> Macro.t())) :: :ok
   def at_ast(project, filename, func) do
     content = read(project, filename)
-    ast = Sourceror.parse_string!(content)
+    {ast, comments} = Code.string_to_quoted_with_comments!(content)
     new_ast = func.(ast)
 
     content =
       new_ast
-      |> Sourceror.to_string()
+      |> Code.quoted_to_algebra(comments: comments)
+      |> Inspect.Algebra.format(:infinity)
+      |> IO.iodata_to_binary()
       |> Code.format_string!()
 
     write(project, filename, content)

@@ -1,6 +1,7 @@
 defmodule MixTesterTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   doctest MixTester, import: true, except: [cleanup_all: 0, expand: 2]
+  require MixTester
 
   test "Creates and deletes the project" do
     project = MixTester.setup()
@@ -30,6 +31,51 @@ defmodule MixTesterTest do
              """ == MixTester.read(project, "lib/example.ex")
 
       assert {_, 0} = MixTester.mix_cmd(project, "test")
+    end
+
+    test "mix test works" do
+      project = MixTester.setup(name: "example")
+      on_exit(fn -> MixTester.cleanup(project) end)
+
+      MixTester.write(project, "lib/example.ex", """
+      defmodule Example do
+        def hello(), do: :world
+      end
+      """)
+
+      assert MixTester.mix_test(project)
+
+      MixTester.write(project, "lib/example.ex", """
+      defmodule Example do
+        def hello(), do: :not_world
+      end
+      """)
+
+      output = ExUnit.CaptureIO.capture_io(fn -> refute MixTester.mix_test(project) end)
+      assert output =~ "1 failure"
+    end
+
+    test "at_ast and mix test" do
+      project = MixTester.setup(name: "example")
+      on_exit(fn -> MixTester.cleanup(project) end)
+
+      MixTester.write(project, "lib/example.ex", """
+      defmodule Example do
+        def hello(), do: :world
+      end
+      """)
+
+      assert MixTester.mix_test(project)
+
+      MixTester.at_ast(project, "lib/example.ex", fn ast ->
+        Macro.prewalk(ast, fn
+          :world -> :not_world
+          other -> other
+        end)
+      end)
+
+      output = ExUnit.CaptureIO.capture_io(fn -> refute MixTester.mix_test(project) end)
+      assert output =~ "1 failure"
     end
 
     test "Deps installation works" do
